@@ -1,0 +1,93 @@
+# API Documentation for Gestion MT
+
+This document describes all the CRUD APIs available in the Gestion MT Django application. All APIs are secured with JWT authentication.
+
+## Authentication
+
+### Obtain JWT Token
+- **URL**: `/api/token/`
+- **Method**: POST
+- **Body**:
+  ```json
+  {
+    "username": "your_username",
+    "password": "your_password"
+  }
+  ```
+- **Response**: 
+  ```json
+  {
+    "refresh": "refresh_token",
+    "access": "access_token"
+  }
+  ```
+
+### Refresh JWT Token
+- **URL**: `/api/token/refresh/`
+- **Method**: POST
+- **Body**:
+  ```json
+  {
+    "refresh": "refresh_token"
+  }
+  ```
+- **Response**:
+  ```json
+  {
+    "access": "new_access_token"
+  }
+  ```
+
+## API Endpoints
+
+All CRUD operations require the `Authorization: Bearer <access_token>` header.
+
+### Users
+- **List/Create**: GET/POST `/api/users/`
+- **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/users/{id}/`
+
+### Clients
+- **List/Create**: GET/POST `/api/clients/`
+- **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/clients/{id}/`
+
+### Materiels
+- **List/Create**: GET/POST `/api/materiels/`
+- **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/materiels/{id}/`
+
+### Demande Maintenances
+- **List/Create**: GET/POST `/api/demande-maintenances/`
+- **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/demande-maintenances/{id}/`
+
+### Interventions
+- **List/Create**: GET/POST `/api/interventions/`
+- **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/interventions/{id}/`
+
+### Fiche Reparations
+- **List/Create**: GET/POST `/api/fiche-reparations/`
+- **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/fiche-reparations/{id}/`
+
+### Pieces
+- **List/Create**: GET/POST `/api/pieces/`
+- **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/pieces/{id}/`
+
+### Demande Pieces
+- **List/Create**: GET/POST `/api/demande-pieces/`
+- **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/demande-pieces/{id}/`
+
+### Factures
+- **List/Create**: GET/POST `/api/factures/`
+- **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/factures/{id}/`
+
+### Paiements
+- **List/Create**: GET/POST `/api/paiements/`
+- **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/paiements/{id}/`
+
+### Messages
+- **List/Create**: GET/POST `/api/messages/`
+- **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/messages/{id}/`
+
+## Notes
+- All POST/PUT requests should include the appropriate JSON data in the body.
+- The User model has additional fields: role, telephone.
+- Foreign key relationships are represented by IDs.
+- Dates are in ISO format.
