@@ -20,7 +20,15 @@
       "value": "http://127.0.0.1:8000"
     },
     {
+      "key": "ws_base_url",
+      "value": "ws://127.0.0.1:8000"
+    },
+    {
       "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "refresh_token",
       "value": ""
     }
   ],
@@ -56,6 +64,7 @@
                   "if (pm.response.code === 200) {",
                   "    const response = pm.response.json();",
                   "    pm.collectionVariables.set('access_token', response.access);",
+                  "    pm.collectionVariables.set('refresh_token', response.refresh);",
                   "}"
                 ]
               }
@@ -101,6 +110,18 @@
           }
         },
         {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/users/me/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users", "me", ""]
+            }
+          }
+        },
+        {
           "name": "Create User",
           "request": {
             "method": "POST",
@@ -112,7 +133,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"username\": \"newuser\",\n  \"email\": \"user@example.com\",\n  \"password\": \"password123\",\n  \"role\": \"technicien\",\n  \"telephone\": \"123456789\"\n}"
+              "raw": "{\n  \"username\": \"tech1\",\n  \"email\": \"tech1@company.com\",\n  \"password\": \"secure_password\",\n  \"first_name\": \"John\",\n  \"last_name\": \"Doe\",\n  \"role\": \"technicien\",\n  \"telephone\": \"+33612345678\",\n  \"image\": null,\n  \"groups\": [],\n  \"user_permissions\": []\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/users/",
@@ -145,7 +166,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"username\": \"updateduser\",\n  \"email\": \"updated@example.com\",\n  \"role\": \"manager\"\n}"
+              "raw": "{\n  \"username\": \"updateduser\",\n  \"email\": \"updated@example.com\",\n  \"password\": \"new_secure_password\",\n  \"first_name\": \"Updated\",\n  \"last_name\": \"User\",\n  \"role\": \"manager\",\n  \"telephone\": \"+33699999999\",\n  \"image\": null,\n  \"groups\": [],\n  \"user_permissions\": []\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/users/1/",
@@ -195,7 +216,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"nom_prenom\": \"John Doe\",\n  \"telephone\": \"123456789\",\n  \"adresse\": \"123 Main St\"\n}"
+              "raw": "{\n  \"nom_complet\": \"John Doe\",\n  \"email\": \"john.doe@example.com\",\n  \"telephone\": \"123456789\",\n  \"adresse\": \"123 Main St\",\n  \"is_deleted\": false\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/clients/",
@@ -228,7 +249,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"nom_prenom\": \"Jane Doe\",\n  \"telephone\": \"987654321\"\n}"
+              "raw": "{\n  \"nom_complet\": \"Jane Doe\",\n  \"email\": \"jane.doe@example.com\",\n  \"telephone\": \"987654321\",\n  \"adresse\": \"456 Updated Street\",\n  \"is_deleted\": false\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/clients/1/",
@@ -246,6 +267,89 @@
               "raw": "{{base_url}}/api/clients/1/",
               "host": ["{{base_url}}"],
               "path": ["api", "clients", "1", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Categories Materiel",
+      "item": [
+        {
+          "name": "List Categories Materiel",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/categories-materiel/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "categories-materiel", ""]
+            }
+          }
+        },
+        {
+          "name": "Create Category Materiel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nom\": \"Laptop\",\n  \"description\": \"Ordinateurs portables\",\n  \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/categories-materiel/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "categories-materiel", ""]
+            }
+          }
+        },
+        {
+          "name": "Retrieve Category Materiel",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/categories-materiel/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "categories-materiel", "1", ""]
+            }
+          }
+        },
+        {
+          "name": "Update Category Materiel",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nom\": \"Imprimante\",\n  \"description\": \"Peripheriques d'impression\",\n  \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/categories-materiel/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "categories-materiel", "1", ""]
+            }
+          }
+        },
+        {
+          "name": "Delete Category Materiel",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/categories-materiel/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "categories-materiel", "1", ""]
             }
           }
         }
@@ -278,7 +382,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client\": 1,\n  \"type\": \"Laptop\",\n  \"marque\": \"Dell\",\n  \"modele\": \"XPS 13\",\n  \"numero_serie\": \"123ABC\",\n  \"etat\": \"Reçu\"\n}"
+              "raw": "{\n  \"client\": 1,\n  \"type\": \"Laptop\",\n  \"marque\": \"Dell\",\n  \"modele\": \"XPS 13\",\n  \"numero_serie\": \"123ABC\",\n  \"etat\": \"Reçu\",\n  \"is_deleted\": false\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/materiels/",
@@ -311,7 +415,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"etat\": \"En réparation\"\n}"
+              "raw": "{\n  \"client\": 1,\n  \"type\": \"Laptop\",\n  \"marque\": \"Dell\",\n  \"modele\": \"XPS 13\",\n  \"numero_serie\": \"123ABC\",\n  \"etat\": \"En réparation\",\n  \"is_deleted\": false\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/materiels/1/",
@@ -350,6 +454,18 @@
           }
         },
         {
+          "name": "List My Demande Maintenances",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/demande-maintenances/me/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "demande-maintenances", "me", ""]
+            }
+          }
+        },
+        {
           "name": "Create Demande Maintenance",
           "request": {
             "method": "POST",
@@ -361,7 +477,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"materiel\": 1,\n  \"receptioniste\": 1,\n  \"priorite\": \"Haute\",\n  \"statut\": \"En attente\"\n}"
+              "raw": "{\n  \"materiel\": 1,\n  \"manager\": 2,\n  \"priorite\": \"haute\",\n  \"statut\": \"en_attente\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/demande-maintenances/",
@@ -394,7 +510,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"statut\": \"En cours\"\n}"
+              "raw": "{\n  \"materiel\": 1,\n  \"manager\": 2,\n  \"priorite\": \"moyenne\",\n  \"statut\": \"en_cours\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/demande-maintenances/1/",
@@ -433,6 +549,18 @@
           }
         },
         {
+          "name": "List My Interventions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/interventions/me/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "interventions", "me", ""]
+            }
+          }
+        },
+        {
           "name": "Create Intervention",
           "request": {
             "method": "POST",
@@ -444,7 +572,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"demande\": 1,\n  \"technicien\": 1,\n  \"statut\": \"Diagnostic\"\n}"
+              "raw": "{\n  \"demande\": 1,\n  \"technicien\": 1,\n  \"diagnostic\": \"Hard drive failure detected\",\n  \"solution_proposee\": \"Replace hard drive with new SSD\",\n  \"statut\": \"en_attente\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/interventions/",
@@ -477,7 +605,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"statut\": \"Terminée\",\n  \"date_fin\": \"2023-12-31T23:59:59Z\"\n}"
+              "raw": "{\n  \"demande\": 1,\n  \"technicien\": 1,\n  \"diagnostic\": \"Hard drive failure detected\",\n  \"solution_proposee\": \"SSD replaced successfully\",\n  \"date_debut\": \"2026-04-08T10:00:00Z\",\n  \"date_fin\": \"2026-04-08T23:59:59Z\",\n  \"statut\": \"termine\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/interventions/1/",
@@ -527,7 +655,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"intervention\": 1,\n  \"description_panne\": \"Screen cracked\",\n  \"solution\": \"Replaced screen\",\n  \"cout_main_oeuvre\": 50.00,\n  \"valide_manager\": false\n}"
+              "raw": "{\n  \"intervention\": 1,\n  \"description_panne\": \"Screen cracked\",\n  \"solution\": \"Replaced screen\",\n  \"cout_main_oeuvre\": 50.00,\n  \"confirmation\": false,\n  \"valide_manager\": false\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/fiche-reparations/",
@@ -560,7 +688,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"solution\": \"Replaced screen and battery\",\n  \"cout_main_oeuvre\": 75.00\n}"
+              "raw": "{\n  \"intervention\": 1,\n  \"description_panne\": \"Screen cracked\",\n  \"solution\": \"Replaced screen and battery\",\n  \"cout_main_oeuvre\": 75.00,\n  \"confirmation\": true,\n  \"valide_manager\": true\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/fiche-reparations/1/",
@@ -610,7 +738,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"nom\": \"Screen\",\n  \"quantite_stock\": 10,\n  \"prix_unitaire\": 100.00\n}"
+              "raw": "{\n  \"nom\": \"Screen\",\n  \"categorie\": 1,\n  \"quantite_stock\": 10,\n  \"prix_unitaire\": 100.00\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/pieces/",
@@ -643,7 +771,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"quantite_stock\": 5\n}"
+              "raw": "{\n  \"nom\": \"Screen\",\n  \"categorie\": 1,\n  \"quantite_stock\": 5,\n  \"prix_unitaire\": 95.00\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/pieces/1/",
@@ -693,7 +821,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fiche\": 1,\n  \"piece\": 1,\n  \"quantite\": 1,\n  \"statut\": \"Demandée\"\n}"
+              "raw": "{\n  \"fiche\": 1,\n  \"piece\": 1,\n  \"quantite\": 1,\n  \"statut\": \"demandee\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/demande-pieces/",
@@ -726,7 +854,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"statut\": \"Approuvée\"\n}"
+              "raw": "{\n  \"fiche\": 1,\n  \"piece\": 1,\n  \"quantite\": 1,\n  \"statut\": \"approuvee\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/demande-pieces/1/",
@@ -776,7 +904,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"intervention\": 1,\n  \"client\": 1,\n  \"montant_total\": 250.00\n}"
+              "raw": "{\n  \"intervention\": 1,\n  \"client\": 1,\n  \"montant_total\": 250.00,\n  \"est_payee\": false,\n  \"is_deleted\": false\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/factures/",
@@ -809,7 +937,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"montant_total\": 300.00\n}"
+              "raw": "{\n  \"intervention\": 1,\n  \"client\": 1,\n  \"montant_total\": 300.00,\n  \"est_payee\": true,\n  \"is_deleted\": false\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/factures/1/",
@@ -859,7 +987,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"facture\": 1,\n  \"montant\": 250.00,\n  \"mode_paiement\": \"Carte de crédit\"\n}"
+              "raw": "{\n  \"facture\": 1,\n  \"montant\": 250.00,\n  \"mode_paiement\": \"cheque\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/paiements/",
@@ -892,7 +1020,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"montant\": 200.00\n}"
+              "raw": "{\n  \"facture\": 1,\n  \"montant\": 200.00,\n  \"mode_paiement\": \"virement\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/paiements/1/",
@@ -931,6 +1059,28 @@
           }
         },
         {
+          "name": "List Messages (Paginated)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/messages/?page=1&page_size=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "messages", ""],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Create Message",
           "request": {
             "method": "POST",
@@ -942,7 +1092,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"expediteur\": 1,\n  \"contenu\": \"Work is done.\"\n}"
+              "raw": "{\n  \"destinataire\": 2,\n  \"objet\": \"Task update\",\n  \"contenu\": \"Work is done.\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/messages/",
@@ -975,7 +1125,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"contenu\": \"Updated message.\"\n}"
+              "raw": "{\n  \"destinataire\": 2,\n  \"objet\": \"Task update (edited)\",\n  \"contenu\": \"Updated message.\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/messages/1/",
@@ -993,6 +1143,126 @@
               "raw": "{{base_url}}/api/messages/1/",
               "host": ["{{base_url}}"],
               "path": ["api", "messages", "1", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "WebSocket (Messages)",
+      "item": [
+        {
+          "name": "Connect URL Example",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ws_base_url}}/ws/messages/?token={{access_token}}",
+              "host": ["{{ws_base_url}}"],
+              "path": ["ws", "messages", ""],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}"
+                }
+              ]
+            },
+            "description": "WebSocket endpoint with JWT query token. You can also pass Authorization: Bearer <token> in WS headers."
+          }
+        },
+        {
+          "name": "message.send Payload",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{ws_base_url}}/ws/messages/",
+              "host": ["{{ws_base_url}}"],
+              "path": ["ws", "messages", ""]
+            },
+            "description": "Send over WS: {\"type\":\"message.send\",\"destinataire\":2,\"contenu\":\"...\",\"objet\":\"...\"}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Departments",
+      "item": [
+        {
+          "name": "List Departments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/departments/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "departments", ""]
+            }
+          }
+        },
+        {
+          "name": "Create Department",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nom_dept\": \"IT Support\",\n  \"description\": \"Information Technology Support Department\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/departments/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "departments", ""]
+            }
+          }
+        },
+        {
+          "name": "Retrieve Department",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/departments/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "departments", "1", ""]
+            }
+          }
+        },
+        {
+          "name": "Update Department",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nom_dept\": \"IT Operations\",\n  \"description\": \"IT Operations and Support\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/departments/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "departments", "1", ""]
+            }
+          }
+        },
+        {
+          "name": "Delete Department",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/departments/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "departments", "1", ""]
             }
           }
         }

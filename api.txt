@@ -1,4 +1,4 @@
-# API Documentation for Gestion MT
+# API Documentation for Gestion MT (Phase 2 - Updated)
 
 This document describes all the CRUD APIs available in the Gestion MT Django application. All APIs are secured with JWT authentication.
 
@@ -10,15 +10,15 @@ This document describes all the CRUD APIs available in the Gestion MT Django app
 - **Body**:
   ```json
   {
-    "username": "your_username",
-    "password": "your_password"
+    "username": "admin",
+    "password": "admin123"
   }
   ```
 - **Response**: 
   ```json
   {
-    "refresh": "refresh_token",
-    "access": "access_token"
+    "refresh": "refresh_token_value",
+    "access": "access_token_value"
   }
   ```
 
@@ -28,13 +28,13 @@ This document describes all the CRUD APIs available in the Gestion MT Django app
 - **Body**:
   ```json
   {
-    "refresh": "refresh_token"
+    "refresh": "refresh_token_value"
   }
   ```
 - **Response**:
   ```json
   {
-    "access": "new_access_token"
+    "access": "new_access_token_value"
   }
   ```
 
@@ -45,49 +45,496 @@ All CRUD operations require the `Authorization: Bearer <access_token>` header.
 ### Users
 - **List/Create**: GET/POST `/api/users/`
 - **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/users/{id}/`
+- **Current Authenticated User**: GET `/api/users/me/`
+- **Fields**: 
+  - id, username, email, first_name, last_name
+  - role (admin, manager, technicien, chefstock, receptioniste)
+  - telephone, image (user avatar), department (read-only nested object)
+  - `is_deleted` is in model but not currently exposed in `UserSerializer`
+
+### Departments (NEW - Phase 2)
+- **List/Create**: GET/POST `/api/departments/`
+- **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/departments/{id}/`
+- **Fields**: id, nom_dept (unique), description, date_creation
+- **Purpose**: Organizational structure to group employees by department
 
 ### Clients
 - **List/Create**: GET/POST `/api/clients/`
 - **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/clients/{id}/`
+- **Fields**: 
+  - id, nom_complet (updated from nom_prenom in Phase 1)
+  - email (unique, optional), telephone, adresse
+  - date_creation, is_deleted (soft-delete)
+
+### Categories Materiel
+- **List/Create**: GET/POST `/api/categories-materiel/`
+- **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/categories-materiel/{id}/`
+- **Fields**:
+  - id, nom (unique), description, is_active, date_creation
 
 ### Materiels
 - **List/Create**: GET/POST `/api/materiels/`
 - **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/materiels/{id}/`
+- **Fields**: 
+  - id, client (FK), type, marque, modele
+  - numero_serie (unique), etat, date_reception
+  - is_deleted (soft-delete)
 
 ### Demande Maintenances
 - **List/Create**: GET/POST `/api/demande-maintenances/`
 - **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/demande-maintenances/{id}/`
+- **Current User Demandes**: GET `/api/demande-maintenances/me/`
+- **Fields**: id, materiel (FK), receptioniste (FK), manager (FK), priorite, statut, date_creation
+- **Status Values**: en_attente, en_cours, termine, refuse
+- **Priority Values**: faible, moyenne, haute
+- **Security Rule**: On POST `/api/demande-maintenances/`, `receptioniste` is forced from authenticated user (`request.user`) and frontend value is ignored.
 
 ### Interventions
 - **List/Create**: GET/POST `/api/interventions/`
 - **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/interventions/{id}/`
+- **Current User Interventions**: GET `/api/interventions/me/`
+- **Fields**: 
+  - id, demande (OneToOne), technicien (FK)
+  - diagnostic (NEW - Phase 2), solution_proposee (NEW - Phase 2)
+  - date_debut, date_fin, statut
+- **Status Values**: en_attente, en_cours, termine, refuse (updated in Phase 1)
 
 ### Fiche Reparations
 - **List/Create**: GET/POST `/api/fiche-reparations/`
 - **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/fiche-reparations/{id}/`
+- **Fields**: 
+  - id, intervention (OneToOne), description_panne, solution
+  - cout_main_oeuvre
+  - confirmation (NEW - Phase 1), valide_manager
+- **Computed Method**: cout_pieces() - Returns total cost of spare parts used
 
 ### Pieces
 - **List/Create**: GET/POST `/api/pieces/`
 - **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/pieces/{id}/`
+- **Fields**: id, nom, categorie (FK, optional), categorie_detail (read-only object), quantite_stock, prix_unitaire
 
 ### Demande Pieces
 - **List/Create**: GET/POST `/api/demande-pieces/`
 - **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/demande-pieces/{id}/`
+- **Fields**: id, fiche (FK), piece (FK), quantite, statut, date_demande
+- **Status Values**: demandee, approuvee, livree
 
 ### Factures
 - **List/Create**: GET/POST `/api/factures/`
 - **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/factures/{id}/`
+- **Fields**: 
+  - id, intervention (OneToOne), client (FK)
+  - montant_total, date_facture, est_payee
+  - is_deleted (soft-delete)
 
 ### Paiements
 - **List/Create**: GET/POST `/api/paiements/`
 - **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/paiements/{id}/`
+- **Fields**: id, facture (FK), montant, mode_paiement, date_paiement
+- **Payment Modes** (NEW - Phase 1 enum):
+  - especes (Espèces)
+  - cheque (Chèque)
+  - virement (Virement)
 
 ### Messages
 - **List/Create**: GET/POST `/api/messages/`
 - **Retrieve/Update/Delete**: GET/PUT/DELETE `/api/messages/{id}/`
+- **Fields**: id, expediteur (FK), destinataire (FK, required), objet, contenu, date_envoi
+- **Security Rule**: On POST `/api/messages/`, `expediteur` is forced from authenticated user (`request.user`) and frontend value is ignored.
+- **Validation Rule**: `destinataire` must exist and cannot be the authenticated user.
+- **Pagination**: GET `/api/messages/?page=1&page_size=20`
+
+## WebSocket (Real-Time Messages)
+
+### Endpoint
+- **URL**: `/ws/messages/`
+- **Recommended URL with query token**: `ws://127.0.0.1:8000/ws/messages/?token=<access_token>`
+- **Alternative auth**: `Authorization: Bearer <access_token>` header during websocket handshake
+
+### Authentication
+- JWT is required for websocket connection.
+- Connection is rejected when token is missing/invalid.
+- On connect, server joins user group: `user_<id>`
+
+### Supported WS Events
+- **Incoming**:
+  - `message.send`
+  - `message.read` (optional)
+- **Outgoing**:
+  - `message.created`
+  - `message.read`
+
+### Minimal Payload Contract
+
+**Input (WS `message.send`)**
+```json
+{
+  "type": "message.send",
+  "destinataire": 2,
+  "contenu": "...",
+  "objet": "..."
+}
+```
+
+**Output (WS `message.created`)**
+```json
+{
+  "type": "message.created",
+  "id": 12,
+  "expediteur": 1,
+  "destinataire": 2,
+  "contenu": "...",
+  "date_envoi": "2026-04-08T10:20:30.123456+00:00"
+}
+```
+
+### Broadcast Behavior
+- After message creation (REST or WS), event is pushed to recipient group `user_<destinataire_id>`.
+- Sender also receives an ack-like real-time event (same `message.created`) in `user_<expediteur_id>`.
+
+## Phase 2 Features
+
+### Role-Based Proxy Models
+The following proxy models enable role-specific database partitioning and admin sections:
+- **Administrateur** - Admin users, auto-sets role='admin' on save
+- **Manager** - Manager users, auto-sets role='manager' on save
+- **Technicien** - Technician users, auto-sets role='technicien' on save
+- **ChefStock** - Stock manager users, auto-sets role='chefstock' on save
+- **Receptioniste** - Receptionist users, auto-sets role='receptioniste' on save
+
+Each proxy model automatically assigns the corresponding role when created/updated.
+
+### Soft-Delete Pattern
+The following models support soft-delete via `is_deleted` boolean field:
+- User
+- Client
+- Materiel
+- Facture
+
+When `is_deleted=True`, records are logically deleted but remain in database for audit purposes.
+
+## Full Field Payload Templates
+
+Use these templates as frontend reference. They match your current serializers/views.
+
+### Users
+
+**POST `/api/users/`**
+```json
+{
+  "username": "tech1",
+  "email": "tech1@company.com",
+  "password": "secure_password",
+  "first_name": "John",
+  "last_name": "Doe",
+  "role": "technicien",
+  "telephone": "+33612345678",
+  "image": null,
+  "groups": [],
+  "user_permissions": []
+}
+```
+
+**PUT `/api/users/{id}/`**
+```json
+{
+  "username": "updateduser",
+  "email": "updated@example.com",
+  "password": "new_secure_password",
+  "first_name": "Updated",
+  "last_name": "User",
+  "role": "manager",
+  "telephone": "+33699999999",
+  "image": null,
+  "groups": [],
+  "user_permissions": []
+}
+```
+
+Note: `department` is read-only nested in `UserSerializer` and is not accepted by POST/PUT payloads.
+
+### Departments
+
+**POST `/api/departments/`**
+```json
+{
+  "nom_dept": "IT Support",
+  "description": "Information Technology Support Department"
+}
+```
+
+**PUT `/api/departments/{id}/`**
+```json
+{
+  "nom_dept": "IT Operations",
+  "description": "IT Operations and Support"
+}
+```
+
+### Clients
+
+**POST `/api/clients/`**
+```json
+{
+  "nom_complet": "John Doe",
+  "email": "john.doe@example.com",
+  "telephone": "123456789",
+  "adresse": "123 Main St",
+  "is_deleted": false
+}
+```
+
+**PUT `/api/clients/{id}/`**
+```json
+{
+  "nom_complet": "Jane Doe",
+  "email": "jane.doe@example.com",
+  "telephone": "987654321",
+  "adresse": "456 Updated Street",
+  "is_deleted": false
+}
+```
+
+### Materiels
+
+**POST `/api/categories-materiel/`**
+```json
+{
+  "nom": "Laptop",
+  "description": "Ordinateurs portables",
+  "is_active": true
+}
+```
+
+**PUT `/api/categories-materiel/{id}/`**
+```json
+{
+  "nom": "Imprimante",
+  "description": "Peripheriques d'impression",
+  "is_active": true
+}
+```
+
+**POST `/api/materiels/`**
+```json
+{
+  "client": 1,
+  "type": "Laptop",
+  "marque": "Dell",
+  "modele": "XPS 13",
+  "numero_serie": "123ABC",
+  "etat": "Recu",
+  "is_deleted": false
+}
+```
+
+**PUT `/api/materiels/{id}/`**
+```json
+{
+  "client": 1,
+  "type": "Laptop",
+  "marque": "Dell",
+  "modele": "XPS 13",
+  "numero_serie": "123ABC",
+  "etat": "En reparation",
+  "is_deleted": false
+}
+```
+
+### Demande Maintenances
+
+**POST `/api/demande-maintenances/`**
+```json
+{
+  "materiel": 1,
+  "manager": 2,
+  "priorite": "haute",
+  "statut": "en_attente"
+}
+```
+
+**PUT `/api/demande-maintenances/{id}/`**
+```json
+{
+  "materiel": 1,
+  "receptioniste": 1,
+  "manager": 2,
+  "priorite": "moyenne",
+  "statut": "en_cours"
+}
+```
+
+Note: on POST, backend forces `receptioniste = request.user`.
+
+### Interventions
+
+**POST `/api/interventions/`**
+```json
+{
+  "demande": 1,
+  "technicien": 1,
+  "diagnostic": "Hard drive failure detected",
+  "solution_proposee": "Replace hard drive with new SSD",
+  "date_debut": null,
+  "date_fin": null,
+  "statut": "en_attente"
+}
+```
+
+**PUT `/api/interventions/{id}/`**
+```json
+{
+  "demande": 1,
+  "technicien": 1,
+  "diagnostic": "Hard drive failure detected",
+  "solution_proposee": "SSD replaced successfully",
+  "date_debut": "2026-04-08T10:00:00Z",
+  "date_fin": "2026-04-08T23:59:59Z",
+  "statut": "termine"
+}
+```
+
+### Fiche Reparations
+
+**POST `/api/fiche-reparations/`**
+```json
+{
+  "intervention": 1,
+  "description_panne": "Screen cracked",
+  "solution": "Replaced screen",
+  "cout_main_oeuvre": 50.00,
+  "confirmation": false,
+  "valide_manager": false
+}
+```
+
+**PUT `/api/fiche-reparations/{id}/`**
+```json
+{
+  "intervention": 1,
+  "description_panne": "Screen cracked",
+  "solution": "Replaced screen and battery",
+  "cout_main_oeuvre": 75.00,
+  "confirmation": true,
+  "valide_manager": true
+}
+```
+
+### Pieces
+
+**POST `/api/pieces/`**
+```json
+{
+  "nom": "Screen",
+  "categorie": 1,
+  "quantite_stock": 10,
+  "prix_unitaire": 100.00
+}
+```
+
+**PUT `/api/pieces/{id}/`**
+```json
+{
+  "nom": "Screen",
+  "categorie": 1,
+  "quantite_stock": 5,
+  "prix_unitaire": 95.00
+}
+```
+
+### Demande Pieces
+
+**POST `/api/demande-pieces/`**
+```json
+{
+  "fiche": 1,
+  "piece": 1,
+  "quantite": 1,
+  "statut": "demandee"
+}
+```
+
+**PUT `/api/demande-pieces/{id}/`**
+```json
+{
+  "fiche": 1,
+  "piece": 1,
+  "quantite": 1,
+  "statut": "approuvee"
+}
+```
+
+### Factures
+
+**POST `/api/factures/`**
+```json
+{
+  "intervention": 1,
+  "client": 1,
+  "montant_total": 250.00,
+  "est_payee": false,
+  "is_deleted": false
+}
+```
+
+**PUT `/api/factures/{id}/`**
+```json
+{
+  "intervention": 1,
+  "client": 1,
+  "montant_total": 300.00,
+  "est_payee": true,
+  "is_deleted": false
+}
+```
+
+### Paiements
+
+**POST `/api/paiements/`**
+```json
+{
+  "facture": 1,
+  "montant": 250.00,
+  "mode_paiement": "cheque"
+}
+```
+
+**PUT `/api/paiements/{id}/`**
+```json
+{
+  "facture": 1,
+  "montant": 200.00,
+  "mode_paiement": "virement"
+}
+```
+
+### Messages
+
+**POST `/api/messages/`**
+```json
+{
+  "destinataire": 2,
+  "objet": "Task update",
+  "contenu": "Work is done."
+}
+```
+
+**PUT `/api/messages/{id}/`**
+```json
+{
+  "destinataire": 2,
+  "objet": "Task update (edited)",
+  "contenu": "Updated message."
+}
+```
+
+Note: `expediteur` and `date_envoi` are read-only in serializer.
 
 ## Notes
-- All POST/PUT requests should include the appropriate JSON data in the body.
-- The User model has additional fields: role, telephone.
+- All POST/PUT requests should include appropriate JSON body data.
+- Most endpoints use full-object PUT semantics (send complete payload for safer frontend behavior).
 - Foreign key relationships are represented by IDs.
-- Dates are in ISO format.
+- Dates are in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ).
+- Image uploads use multipart/form-data in real use cases.
+- Soft-delete fields exist on some models, but default viewsets currently do not auto-filter `is_deleted=true`.
+- Role assignment can be done via regular User model or proxy models.

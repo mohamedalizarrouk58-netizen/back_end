@@ -6,6 +6,7 @@ from . import views
 router = DefaultRouter()
 router.register(r'users', views.UserViewSet)
 router.register(r'clients', views.ClientViewSet)
+router.register(r'categories-materiel', views.CategorieMaterielViewSet)
 router.register(r'materiels', views.MaterielViewSet)
 router.register(r'demande-maintenances', views.DemandeMaintenanceViewSet)
 router.register(r'interventions', views.InterventionViewSet)
@@ -15,6 +16,7 @@ router.register(r'demande-pieces', views.DemandePieceViewSet)
 router.register(r'factures', views.FactureViewSet)
 router.register(r'paiements', views.PaiementViewSet)
 router.register(r'messages', views.MessageViewSet)
+router.register(r'departments', views.DepartmentViewSet)
 
 urlpatterns = [
     path("hello/", views.hello, name='hello'),
