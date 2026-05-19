@@ -1,5 +1,7 @@
 from rest_framework import serializers
-from .models import User, Client, CategorieMateriel, Materiel, DemandeMaintenance, Intervention, FicheReparation, Piece, DemandePiece, Facture, Paiement, Message, Department
+from .models import (User, Client, CategorieMateriel, Materiel, DemandeMaintenance, Intervention, FicheReparation, 
+                     Piece, DemandePiece, Facture, Paiement, Message, Department,
+                     Fournisseur, CommandePiece, LigneCommandePiece, PrixFournisseur, FactureFournisseur)
 
 class DepartmentSerializer(serializers.ModelSerializer):
     class Meta:
@@ -74,9 +76,13 @@ class PieceSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class DemandePieceSerializer(serializers.ModelSerializer):
+    piece_nom = serializers.CharField(source='piece.nom', read_only=True)
+    fournisseur_nom = serializers.CharField(source='fournisseur.nom', read_only=True)
+
     class Meta:
         model = DemandePiece
         fields = '__all__'
+        read_only_fields = ('date_demande', 'date_reponse_fournisseur')
 
 class FactureSerializer(serializers.ModelSerializer):
     class Meta:
@@ -99,3 +105,55 @@ class MessageSerializer(serializers.ModelSerializer):
         if request and request.user and request.user.is_authenticated and value == request.user:
             raise serializers.ValidationError('You cannot send a message to yourself.')
         return value
+
+
+# ===== MODULE D'ACHAT DE PIECES =====
+
+class FournisseurSerializer(serializers.ModelSerializer):
+    utilisateur_username = serializers.CharField(source='utilisateur.username', read_only=True)
+    utilisateur_email = serializers.CharField(source='utilisateur.email', read_only=True)
+    
+    class Meta:
+        model = Fournisseur
+        fields = '__all__'
+        read_only_fields = ('date_creation',)
+
+
+class PrixFournisseurSerializer(serializers.ModelSerializer):
+    piece_nom = serializers.CharField(source='piece.nom', read_only=True)
+    fournisseur_nom = serializers.CharField(source='fournisseur.nom', read_only=True)
+
+    class Meta:
+        model = PrixFournisseur
+        fields = '__all__'
+        read_only_fields = ('date_mise_a_jour',)
+
+
+class LigneCommandePieceSerializer(serializers.ModelSerializer):
+    piece_nom = serializers.CharField(source='piece.nom', read_only=True)
+    sous_total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = LigneCommandePiece
+        fields = '__all__'
+
+
+class CommandePieceSerializer(serializers.ModelSerializer):
+    lignes = LigneCommandePieceSerializer(many=True, read_only=True)
+    fournisseur_nom = serializers.CharField(source='fournisseur.nom', read_only=True)
+    chef_stock_nom = serializers.CharField(source='chef_stock.get_full_name', read_only=True)
+
+    class Meta:
+        model = CommandePiece
+        fields = '__all__'
+        read_only_fields = ('montant_total', 'date_commande')
+
+
+class FactureFournisseurSerializer(serializers.ModelSerializer):
+    fournisseur_nom = serializers.CharField(source='fournisseur.nom', read_only=True)
+    numero_commande = serializers.CharField(source='commande.numero_commande', read_only=True)
+
+    class Meta:
+        model = FactureFournisseur
+        fields = '__all__'
+        read_only_fields = ('date_facture',)

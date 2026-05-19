@@ -186,6 +186,27 @@
               "path": ["api", "users", "1", ""]
             }
           }
+        },
+        {
+          "name": "Register Supplier (Fournisseur)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"supplier_001\",\n  \"password\": \"secure_password\",\n  \"email\": \"supplier@techsupply.com\",\n  \"nom_fournisseur\": \"Tech Supply SARL\",\n  \"telephone\": \"0600000000\",\n  \"adresse\": \"Casablanca\",\n  \"ville\": \"Casablanca\",\n  \"contact_principal\": \"Ahmed El Fassi\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users/register-fournisseur/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users", "register-fournisseur", ""]
+            }
+          }
         }
       ]
     },
@@ -872,6 +893,251 @@
               "raw": "{{base_url}}/api/demande-pieces/1/",
               "host": ["{{base_url}}"],
               "path": ["api", "demande-pieces", "1", ""]
+            }
+          }
+        },
+        {
+          "name": "Assign Supplier To Demande Piece",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fournisseur_id\": 1\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/demande-pieces/1/assigner-fournisseur/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "demande-pieces", "1", "assigner-fournisseur", ""]
+            }
+          }
+        },
+        {
+          "name": "Supplier Accept Demande Piece",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"accepter\",\n  \"prix\": \"125.00\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/demande-pieces/1/reponse-fournisseur/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "demande-pieces", "1", "reponse-fournisseur", ""]
+            }
+          }
+        },
+        {
+          "name": "Supplier Refuse Demande Piece",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"refuser\",\n  \"motif_refus\": \"No stock available at supplier\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/demande-pieces/1/reponse-fournisseur/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "demande-pieces", "1", "reponse-fournisseur", ""]
+            }
+          }
+        },
+        {
+          "name": "Receive Supplier Delivery",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantite_livree\": 2,\n  \"numero_facture\": \"FF-2026-001\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/demande-pieces/1/reception-livraison/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "demande-pieces", "1", "reception-livraison", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Fournisseurs Achat Pieces",
+      "item": [
+        {
+          "name": "List Fournisseurs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/fournisseurs/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "fournisseurs", ""]
+            }
+          }
+        },
+        {
+          "name": "Create Fournisseur",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nom\": \"Tech Supply SARL\",\n  \"email\": \"contact@techsupply.com\",\n  \"telephone\": \"0600000000\",\n  \"adresse\": \"Casablanca\",\n  \"ville\": \"Casablanca\",\n  \"code_postal\": \"20000\",\n  \"pays\": \"Maroc\",\n  \"contact_principal\": \"Ahmed El Fassi\",\n  \"est_actif\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/fournisseurs/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "fournisseurs", ""]
+            }
+          }
+        },
+        {
+          "name": "Retrieve Fournisseur",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/fournisseurs/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "fournisseurs", "1", ""]
+            }
+          }
+        },
+        {
+          "name": "Update Fournisseur",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nom\": \"Tech Supply SARL\",\n  \"email\": \"sales@techsupply.com\",\n  \"telephone\": \"0600000001\",\n  \"adresse\": \"Rabat\",\n  \"ville\": \"Rabat\",\n  \"code_postal\": \"10000\",\n  \"pays\": \"Maroc\",\n  \"contact_principal\": \"Youssef El Amrani\",\n  \"est_actif\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/fournisseurs/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "fournisseurs", "1", ""]
+            }
+          }
+        },
+        {
+          "name": "Delete Fournisseur",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/fournisseurs/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "fournisseurs", "1", ""]
+            }
+          }
+        },
+        {
+          "name": "List Commandes Pieces",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/commandes-pieces/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "commandes-pieces", ""]
+            }
+          }
+        },
+        {
+          "name": "List Prix Fournisseurs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/prix-fournisseurs/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "prix-fournisseurs", ""]
+            }
+          }
+        },
+        {
+          "name": "Create Prix Fournisseur",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"piece\": 1,\n  \"fournisseur\": 1,\n  \"prix\": \"125.00\",\n  \"delai_livraison_jours\": 5,\n  \"quantite_minimum\": 1,\n  \"est_actif\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/prix-fournisseurs/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "prix-fournisseurs", ""]
+            }
+          }
+        },
+        {
+          "name": "List Factures Fournisseurs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/factures-fournisseurs/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "factures-fournisseurs", ""]
+            }
+          }
+        },
+        {
+          "name": "Create Facture Fournisseur",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numero_facture\": \"FF-2026-001\",\n  \"commande\": 1,\n  \"fournisseur\": 1,\n  \"montant_total\": \"250.00\",\n  \"statut\": \"brouillon\",\n  \"notes\": \"Generated after delivery\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/factures-fournisseurs/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "factures-fournisseurs", ""]
             }
           }
         }

@@ -17,6 +17,12 @@ router.register(r'factures', views.FactureViewSet)
 router.register(r'paiements', views.PaiementViewSet)
 router.register(r'messages', views.MessageViewSet)
 router.register(r'departments', views.DepartmentViewSet)
+# Module d'achat de pièces
+router.register(r'fournisseurs', views.FournisseurViewSet)
+router.register(r'commandes-pieces', views.CommandePieceViewSet)
+router.register(r'lignes-commandes', views.LigneCommandePieceViewSet)
+router.register(r'prix-fournisseurs', views.PrixFournisseurViewSet)
+router.register(r'factures-fournisseurs', views.FactureFournisseurViewSet)
 
 urlpatterns = [
     path("hello/", views.hello, name='hello'),

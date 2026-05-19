@@ -21,6 +21,7 @@ class User(AbstractUser):
         ('manager','Manager'),
         ('technicien','Technicien'),
         ('chefstock','ChefStock'),
+        ('fournisseur','Fournisseur'),
         ('admin','Administrateur'),
     )
 
@@ -102,6 +103,16 @@ class Receptioniste(User):
 
     def save(self, *args, **kwargs):
         self.role = 'receptioniste'
+        super().save(*args, **kwargs)
+
+class FournisseurUser(User):
+    class Meta:
+        proxy = True
+        verbose_name = 'Fournisseur'
+        verbose_name_plural = 'Fournisseurs'
+
+    def save(self, *args, **kwargs):
+        self.role = 'fournisseur'
         super().save(*args, **kwargs)
 
 class Client(models.Model):
@@ -228,6 +239,12 @@ class FicheReparation(models.Model):
         verbose_name_plural = 'Fiches de réparation'
 
 class Piece(models.Model):
+    STATUTS_STOCK = [
+        ('en_stock', 'En stock'),
+        ('stock_faible', 'Stock faible'),
+        ('hors_stock', 'Hors stock'),
+    ]
+
     nom = models.CharField(max_length=200)
     categorie = models.ForeignKey(
         CategorieMateriel,
@@ -236,11 +253,28 @@ class Piece(models.Model):
         blank=True,
         related_name='pieces'
     )
+    modele = models.CharField(max_length=100, null=True, blank=True, help_text="Modèle de la pièce")
+    reference = models.CharField(max_length=100, unique=True, null=True, blank=True, help_text="Référence/SKU de la pièce")
     quantite_stock = models.IntegerField()
+    seuil_alerte = models.IntegerField(default=1)
+    statut_stock = models.CharField(max_length=20, choices=STATUTS_STOCK, default='en_stock', db_index=True)
     prix_unitaire = models.DecimalField(max_digits=10, decimal_places=2)
+    date_creation = models.DateTimeField(auto_now_add=True)
+
+    def update_stock_status(self):
+        if self.quantite_stock <= 0:
+            self.statut_stock = 'hors_stock'
+        elif self.quantite_stock <= self.seuil_alerte:
+            self.statut_stock = 'stock_faible'
+        else:
+            self.statut_stock = 'en_stock'
+
+    def save(self, *args, **kwargs):
+        self.update_stock_status()
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        return self.nom
+        return f"{self.nom} ({self.reference})" if self.reference else self.nom
 
     class Meta:
         verbose_name = 'Piece'
@@ -249,13 +283,44 @@ class Piece(models.Model):
 class DemandePiece(models.Model):
     STATUTS = [
         ('demandee', 'Demandée'),
-        ('approuvee', 'Approuvée'),
+        ('en_attente_fournisseur', 'En attente fournisseur'),
+        ('acceptee_fournisseur', 'Acceptée fournisseur'),
+        ('refusee_fournisseur', 'Refusée fournisseur'),
+        ('reaffectee', 'Réaffectée à un autre fournisseur'),
+        ('commandee', 'Commandée'),
         ('livree', 'Livrée'),
+        ('annulee', 'Annulée'),
     ]
     fiche = models.ForeignKey(FicheReparation, on_delete=models.CASCADE, related_name='demandes_pieces')
     piece = models.ForeignKey(Piece, on_delete=models.CASCADE, related_name='demandes')
     quantite = models.IntegerField()
-    statut = models.CharField(max_length=20, choices=STATUTS, default='demandee')
+    quantite_manquante = models.IntegerField(default=0)
+    demandeur_stock = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='demandes_pieces_stock',
+        limit_choices_to={'role': 'chefstock'}
+    )
+    fournisseur = models.ForeignKey(
+        'Fournisseur',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='demandes_pieces'
+    )
+    commande = models.ForeignKey(
+        'CommandePiece',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='demandes_pieces'
+    )
+    prix_propose_fournisseur = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    motif_refus_fournisseur = models.TextField(null=True, blank=True)
+    date_reponse_fournisseur = models.DateTimeField(null=True, blank=True)
+    statut = models.CharField(max_length=30, choices=STATUTS, default='demandee')
     date_demande = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -308,3 +373,138 @@ class Message(models.Model):
 
     def __str__(self):
         return f"Message {self.id} de {self.expediteur.username} à {self.destinataire.username}"
+
+
+# ===== MODULE D'ACHAT DE PIECES =====
+
+class Fournisseur(models.Model):
+    """Modèle pour gérer les fournisseurs de pièces détachées"""
+    utilisateur = models.OneToOneField(User, on_delete=models.CASCADE, null=True, blank=True, related_name='fournisseur_profile', limit_choices_to={'role': 'fournisseur'})
+    nom = models.CharField(max_length=200, unique=True)
+    email = models.EmailField(null=True, blank=True)
+    telephone = models.CharField(max_length=20, null=True, blank=True)
+    adresse = models.TextField(null=True, blank=True)
+    ville = models.CharField(max_length=100, null=True, blank=True)
+    code_postal = models.CharField(max_length=20, null=True, blank=True)
+    pays = models.CharField(max_length=100, null=True, blank=True, default='Maroc')
+    contact_principal = models.CharField(max_length=200, null=True, blank=True)
+    date_creation = models.DateTimeField(auto_now_add=True)
+    est_actif = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.nom
+
+    class Meta:
+        verbose_name = 'Fournisseur'
+        verbose_name_plural = 'Fournisseurs'
+        ordering = ['nom']
+
+
+class CommandePiece(models.Model):
+    """Modèle pour les commandes de pièces auprès des fournisseurs"""
+    STATUTS = [
+        ('brouillon', 'Brouillon'),
+        ('en_attente_fournisseur', 'En attente fournisseur'),
+        ('acceptee_fournisseur', 'Acceptée fournisseur'),
+        ('refusee_fournisseur', 'Refusée fournisseur'),
+        ('commande', 'Commandée'),
+        ('livree', 'Livrée'),
+        ('annulee', 'Annulée'),
+    ]
+
+    numero_commande = models.CharField(max_length=50, unique=True, db_index=True)
+    fournisseur = models.ForeignKey(Fournisseur, on_delete=models.PROTECT, related_name='commandes')
+    chef_stock = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, 
+                                    limit_choices_to={'role': 'chefstock'}, related_name='commandes_creees')
+    statut = models.CharField(max_length=30, choices=STATUTS, default='brouillon')
+    montant_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    date_commande = models.DateTimeField(auto_now_add=True)
+    date_livraison_prevue = models.DateTimeField(null=True, blank=True)
+    date_livraison_reelle = models.DateTimeField(null=True, blank=True)
+    date_reponse_fournisseur = models.DateTimeField(null=True, blank=True)
+    motif_refus_fournisseur = models.TextField(null=True, blank=True)
+    remarques = models.TextField(null=True, blank=True)
+    is_deleted = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Cmd-{self.numero_commande} ({self.get_statut_display()})"
+
+    def calculer_montant_total(self):
+        """Calcule le montant total de la commande"""
+        total = self.lignes.aggregate(
+            total=Sum(F('prix_unitaire') * F('quantite'), output_field=DecimalField())
+        )['total'] or 0
+        self.montant_total = total
+        self.save()
+        return total
+
+    class Meta:
+        verbose_name = 'Commande de pièces'
+        verbose_name_plural = 'Commandes de pièces'
+        ordering = ['-date_commande']
+
+
+class LigneCommandePiece(models.Model):
+    """Modèle pour les lignes détaillées d'une commande de pièces"""
+    commande = models.ForeignKey(CommandePiece, on_delete=models.CASCADE, related_name='lignes')
+    piece = models.ForeignKey(Piece, on_delete=models.PROTECT, related_name='lignes_commande')
+    quantite = models.IntegerField()
+    prix_unitaire = models.DecimalField(max_digits=10, decimal_places=2)
+    sous_total = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
+
+    def save(self, *args, **kwargs):
+        self.sous_total = self.quantite * self.prix_unitaire
+        super().save(*args, **kwargs)
+        # Mettre à jour le montant total de la commande
+        self.commande.calculer_montant_total()
+
+    def __str__(self):
+        return f"{self.commande.numero_commande} - {self.piece.nom} x{self.quantite}"
+
+    class Meta:
+        verbose_name = 'Ligne de commande'
+        verbose_name_plural = 'Lignes de commande'
+
+class PrixFournisseur(models.Model):
+    """Modèle pour gérer les prix historiques des pièces chez différents fournisseurs"""
+    piece = models.ForeignKey(Piece, on_delete=models.CASCADE, related_name='prix_fournisseurs')
+    fournisseur = models.ForeignKey(Fournisseur, on_delete=models.CASCADE, related_name='prix_pieces')
+    prix = models.DecimalField(max_digits=10, decimal_places=2)
+    delai_livraison_jours = models.IntegerField(null=True, blank=True, help_text="Délai de livraison en jours")
+    quantite_minimum = models.IntegerField(default=1, help_text="Quantité minimum pour cette offre")
+    date_mise_a_jour = models.DateTimeField(auto_now=True)
+    est_actif = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.piece.nom} - {self.fournisseur.nom}: {self.prix} DH"
+
+    class Meta:
+        verbose_name = 'Prix fournisseur'
+        verbose_name_plural = 'Prix fournisseurs'
+        unique_together = ['piece', 'fournisseur']
+        ordering = ['piece', 'prix']
+
+
+class FactureFournisseur(models.Model):
+    """Facture émise par un fournisseur sur une commande de pièces"""
+    STATUTS = [
+        ('brouillon', 'Brouillon'),
+        ('validee', 'Validée'),
+        ('payee', 'Payée'),
+    ]
+
+    numero_facture = models.CharField(max_length=100, unique=True, db_index=True)
+    commande = models.OneToOneField(CommandePiece, on_delete=models.CASCADE, related_name='facture_fournisseur')
+    fournisseur = models.ForeignKey(Fournisseur, on_delete=models.PROTECT, related_name='factures')
+    montant_total = models.DecimalField(max_digits=12, decimal_places=2)
+    date_facture = models.DateTimeField(auto_now_add=True)
+    statut = models.CharField(max_length=20, choices=STATUTS, default='brouillon')
+    notes = models.TextField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Facture fournisseur {self.numero_facture}"
+
+    class Meta:
+        verbose_name = 'Facture fournisseur'
+        verbose_name_plural = 'Factures fournisseurs'
+        ordering = ['-date_facture']
