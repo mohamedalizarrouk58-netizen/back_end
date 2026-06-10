@@ -203,3 +203,16 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# ===== EMAIL / SMTP CONFIGURATION (Gmail) =====
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'mohamedalizarrouk58@gmail.com')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', 'imgcixrqdolwffmn')
+DEFAULT_FROM_EMAIL = f'GMAO Système <{EMAIL_HOST_USER}>'
+
+# OTP settings
+OTP_EXPIRY_MINUTES = 10  # OTP expires after 10 minutes
+OTP_LENGTH = 6

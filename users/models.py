@@ -1,6 +1,9 @@
 from django.contrib.auth.models import AbstractUser, Group, Permission
 from django.db import models
 from django.db.models import Sum, F, DecimalField
+from django.utils import timezone
+import random
+import string
 
 class Department(models.Model):
     nom_dept = models.CharField(max_length=100, unique=True)
@@ -30,6 +33,7 @@ class User(AbstractUser):
     image = models.ImageField(upload_to='user_images/', null=True, blank=True)
     department = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True, blank=True, related_name='employees')
     is_deleted = models.BooleanField(default=False)  # Soft delete
+    two_factor_enabled = models.BooleanField(default=False)  # 2FA via email
 
     # Override the groups and user_permissions to avoid reverse accessor clashes
     groups = models.ManyToManyField(
@@ -53,6 +57,37 @@ class User(AbstractUser):
     class Meta:
         verbose_name = 'Utilisateur'
         verbose_name_plural = 'Utilisateurs'
+
+# ===== OTP CODE MODEL =====
+
+class OTPCode(models.Model):
+    PURPOSE_CHOICES = [
+        ('password_reset', 'Password Reset'),
+        ('two_factor', 'Two Factor Authentication'),
+    ]
+
+    user = models.ForeignKey('User', on_delete=models.CASCADE, related_name='otp_codes')
+    code = models.CharField(max_length=6)
+    purpose = models.CharField(max_length=20, choices=PURPOSE_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+
+    def is_valid(self):
+        return not self.is_used and timezone.now() < self.expires_at
+
+    @classmethod
+    def generate_code(cls, length=6):
+        return ''.join(random.choices(string.digits, k=length))
+
+    def __str__(self):
+        return f"OTP [{self.purpose}] for {self.user.username} - {'valid' if self.is_valid() else 'expired/used'}"
+
+    class Meta:
+        verbose_name = 'OTP Code'
+        verbose_name_plural = 'OTP Codes'
+        ordering = ['-created_at']
+
 
 # Proxy models for role-based access
 class Administrateur(User):
@@ -283,6 +318,7 @@ class Piece(models.Model):
 class DemandePiece(models.Model):
     STATUTS = [
         ('demandee', 'Demandée'),
+        ('hors_stock', 'Hors stock (A commander)'),
         ('en_attente_fournisseur', 'En attente fournisseur'),
         ('acceptee_fournisseur', 'Acceptée fournisseur'),
         ('refusee_fournisseur', 'Refusée fournisseur'),
@@ -291,7 +327,7 @@ class DemandePiece(models.Model):
         ('livree', 'Livrée'),
         ('annulee', 'Annulée'),
     ]
-    fiche = models.ForeignKey(FicheReparation, on_delete=models.CASCADE, related_name='demandes_pieces')
+    fiche = models.ForeignKey(FicheReparation, on_delete=models.CASCADE, related_name='demandes_pieces', null=True, blank=True)
     piece = models.ForeignKey(Piece, on_delete=models.CASCADE, related_name='demandes')
     quantite = models.IntegerField()
     quantite_manquante = models.IntegerField(default=0)
