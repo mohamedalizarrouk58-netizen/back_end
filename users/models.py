@@ -31,6 +31,7 @@ class User(AbstractUser):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
     telephone = models.CharField(max_length=20, null=True, blank=True)
     image = models.ImageField(upload_to='user_images/', null=True, blank=True)
+    image_data = models.TextField(null=True, blank=True, help_text='Base64 or data-URL profile image')
     department = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True, blank=True, related_name='employees')
     is_deleted = models.BooleanField(default=False)  # Soft delete
     two_factor_enabled = models.BooleanField(default=False)  # 2FA via email
@@ -153,10 +154,10 @@ class FournisseurUser(User):
 class Client(models.Model):
     nom_complet = models.CharField(max_length=200, blank=False)
     email = models.EmailField(unique=True, blank=True, null=True)
-    telephone = models.CharField(max_length=20)
+    telephone = models.CharField(max_length=20, blank=True, null=True)
     adresse = models.TextField(null=True, blank=True)
     date_creation = models.DateTimeField(auto_now_add=True)
-    is_deleted = models.BooleanField(default=False)  # Soft delete
+    is_deleted = models.BooleanField(default=False)  # Soft delete — not shown in UI
 
     def __str__(self):
         return self.nom_complet
@@ -257,6 +258,14 @@ class FicheReparation(models.Model):
     description_panne = models.TextField()
     solution = models.TextField(null=True, blank=True)
     cout_main_oeuvre = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    frais_societe = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        help_text='Frais de service de la société',
+    )
+    prix_supplementaire = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        help_text='Prix supplémentaire / charges additionnelles',
+    )
     confirmation = models.BooleanField(default=False)
     valide_manager = models.BooleanField(default=False)
 
@@ -268,6 +277,16 @@ class FicheReparation(models.Model):
         return self.demandes_pieces.aggregate(
             total=Sum(F('piece__prix_unitaire') * F('quantite'), output_field=DecimalField())
         )['total'] or 0
+
+    def cout_total(self):
+        """Total repair cost: parts + labor + society fees + additional price."""
+        from decimal import Decimal
+        return (
+            Decimal(str(self.cout_pieces() or 0))
+            + Decimal(str(self.cout_main_oeuvre or 0))
+            + Decimal(str(self.frais_societe or 0))
+            + Decimal(str(self.prix_supplementaire or 0))
+        )
 
     class Meta:
         verbose_name = 'Fiche de réparation'
@@ -369,9 +388,15 @@ class DemandePiece(models.Model):
 class Facture(models.Model):
     intervention = models.OneToOneField(Intervention, on_delete=models.CASCADE, related_name='facture')
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='factures')
+    montant_pieces = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    montant_main_oeuvre = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    montant_frais_societe = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    montant_supplementaire = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     montant_total = models.DecimalField(max_digits=10, decimal_places=2)
     date_facture = models.DateTimeField(auto_now_add=True)
     est_payee = models.BooleanField(default=False)
+    email_client_envoye = models.BooleanField(default=False)
+    date_email_client = models.DateTimeField(null=True, blank=True)
     is_deleted = models.BooleanField(default=False)  # Soft delete
 
     def __str__(self):
@@ -401,10 +426,24 @@ class Paiement(models.Model):
 
 
 class Message(models.Model):
+    TYPE_TEXT = 'text'
+    TYPE_IMAGE = 'image'
+    TYPE_AUDIO = 'audio'
+    TYPE_FILE = 'file'
+    TYPE_CHOICES = [
+        (TYPE_TEXT, 'Text'),
+        (TYPE_IMAGE, 'Image'),
+        (TYPE_AUDIO, 'Audio'),
+        (TYPE_FILE, 'File'),
+    ]
+
     expediteur = models.ForeignKey(User, on_delete=models.CASCADE, related_name='messages_envoyes')
     destinataire = models.ForeignKey(User, on_delete=models.CASCADE, related_name='messages_recus')
     objet = models.CharField(max_length=200, blank=True)
-    contenu = models.TextField()
+    contenu = models.TextField(blank=True)
+    type_message = models.CharField(max_length=10, choices=TYPE_CHOICES, default=TYPE_TEXT)
+    fichier = models.FileField(upload_to='messages/%Y/%m/', null=True, blank=True)
+    is_deleted = models.BooleanField(default=False)
     date_envoi = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

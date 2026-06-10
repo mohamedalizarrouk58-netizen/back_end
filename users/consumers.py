@@ -3,6 +3,7 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.contrib.auth import get_user_model
 
 from .models import Message
+from .message_payload import build_message_payload
 
 
 class MessageConsumer(AsyncJsonWebsocketConsumer):
@@ -85,6 +86,9 @@ class MessageConsumer(AsyncJsonWebsocketConsumer):
     async def message_created(self, event):
         await self.send_json(event["payload"])
 
+    async def message_deleted(self, event):
+        await self.send_json(event["payload"])
+
     async def message_read(self, event):
         await self.send_json(event["payload"])
 
@@ -93,8 +97,9 @@ class MessageConsumer(AsyncJsonWebsocketConsumer):
         if not destinataire_id:
             return None, "destinataire is required"
 
-        if not contenu or not str(contenu).strip():
-            return None, "contenu is required"
+        contenu = str(contenu or '').strip()
+        if not contenu:
+            return None, "contenu is required for text messages. Use the API for images and voice."
 
         User = get_user_model()
 
@@ -118,18 +123,11 @@ class MessageConsumer(AsyncJsonWebsocketConsumer):
             expediteur=sender,
             destinataire=destinataire,
             objet=(objet or "").strip(),
-            contenu=str(contenu).strip(),
+            contenu=contenu,
+            type_message=Message.TYPE_TEXT,
         )
 
-        return {
-            "type": "message.created",
-            "id": message.id,
-            "expediteur": message.expediteur_id,
-            "destinataire": message.destinataire_id,
-            "objet": message.objet,
-            "contenu": message.contenu,
-            "date_envoi": message.date_envoi.isoformat(),
-        }, None
+        return build_message_payload(message), None
 
     @database_sync_to_async
     def _build_message_read_payload(self, message_id, user_id):

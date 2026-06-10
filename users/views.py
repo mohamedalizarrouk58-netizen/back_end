@@ -1,14 +1,13 @@
 from django.shortcuts import render
-from django.db.models import Q
+from django.db import transaction
+from django.db.models import Q, Sum
 from django.utils import timezone
 from datetime import timedelta
 from decimal import Decimal
 import uuid
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
 from rest_framework import viewsets, status
-from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, action, permission_classes
 from rest_framework.response import Response
@@ -22,13 +21,21 @@ from .models import (User, Client, CategorieMateriel, Materiel, DemandeMaintenan
                      Piece, DemandePiece, Facture, Paiement, Message, Department,
                      Fournisseur, CommandePiece, LigneCommandePiece, PrixFournisseur, FactureFournisseur, OTPCode)
 from .serializers import (
-    UserSerializer, ClientSerializer, CategorieMaterielSerializer, MaterielSerializer, DemandeMaintenanceSerializer,
-    InterventionSerializer, FicheReparationSerializer, PieceSerializer, DemandePieceSerializer,
-    FactureSerializer, PaiementSerializer, MessageSerializer, DepartmentSerializer,
+    UserSerializer, UserProfileSerializer, ClientSerializer, CategorieMaterielSerializer, MaterielSerializer,
+    DemandeMaintenanceSerializer, InterventionSerializer, FicheReparationSerializer, PieceSerializer,
+    DemandePieceSerializer, FactureSerializer, PaiementSerializer, MessageSerializer, DepartmentSerializer,
     FournisseurSerializer, CommandePieceSerializer, LigneCommandePieceSerializer, PrixFournisseurSerializer,
-    FactureFournisseurSerializer
+    FactureFournisseurSerializer,
 )
-from .permissions import IsChefStockOrAdmin
+from .permissions import IsChefStockOrAdmin, IsAdmin, RoleWritePermission
+from .realtime_messages import broadcast_message_created, broadcast_message_deleted
+from .client_invoice import (
+    upsert_client_facture,
+    send_client_repair_invoice_email,
+    compute_repair_total,
+)
+from .mixins import ListQueryParamFilterMixin
+from .pagination import StandardPagination
 from rest_framework.permissions import AllowAny
 
 # Create your views here.
@@ -335,9 +342,18 @@ def send_2fa_otp_for_login(request):
 def hello(request):
     return JsonResponse({"response": "hello"})
 
-class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all()
+class UserViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
+    queryset = User.objects.filter(is_deleted=False)
     serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = set()  # only admin can create/update/delete users
+    search_fields = ['username', 'email', 'first_name', 'last_name', 'telephone']
+    ordering_fields = ['username', 'date_joined', 'role']
+
+    def perform_destroy(self, instance):
+        instance.is_deleted = True
+        instance.is_active = False
+        instance.save(update_fields=['is_deleted', 'is_active'])
 
     @action(detail=False, methods=['post'], url_path='register-fournisseur', permission_classes=[AllowAny])
     def register_fournisseur(self, request):
@@ -394,9 +410,13 @@ class UserViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED
         )
 
+    # Self-registration is restricted to suppliers. Staff accounts
+    # (admin, manager, technicien, ...) must be created by an admin.
+    SELF_REGISTER_ROLES = {'fournisseur'}
+
     @action(detail=False, methods=['post'], url_path='register', permission_classes=[AllowAny])
     def register(self, request):
-        """General user self-registration endpoint"""
+        """Public self-registration endpoint (suppliers only)."""
         username = request.data.get('username')
         password = request.data.get('password')
         email = request.data.get('email')
@@ -411,11 +431,11 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        valid_roles = [r[0] for r in User.ROLE_CHOICES]
-        if role not in valid_roles:
+        if role not in self.SELF_REGISTER_ROLES:
             return Response(
-                {'detail': f'Invalid role. Choose from {", ".join(valid_roles)}.'},
-                status=status.HTTP_400_BAD_REQUEST
+                {'detail': 'Self-registration is only available for supplier accounts. '
+                           'Staff accounts must be created by an administrator.'},
+                status=status.HTTP_403_FORBIDDEN
             )
 
         if User.objects.filter(username=username).exists():
@@ -453,60 +473,278 @@ class UserViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED
         )
 
-    @action(detail=False, methods=['get'], url_path='me')
-    def me(self, request):
+    def _update_current_user_profile(self, request):
+        profile_serializer = UserProfileSerializer(
+            request.user,
+            data=request.data,
+            partial=request.method == 'PATCH',
+        )
+        profile_serializer.is_valid(raise_exception=True)
+        profile_serializer.save()
         serializer = self.get_serializer(request.user)
         return Response(serializer.data)
 
-class ClientViewSet(viewsets.ModelViewSet):
-    queryset = Client.objects.all()
+    @action(detail=False, methods=['get', 'patch', 'put'], url_path='me', permission_classes=[IsAuthenticated])
+    def me(self, request):
+        if request.method == 'GET':
+            serializer = self.get_serializer(request.user)
+            return Response(serializer.data)
+        return self._update_current_user_profile(request)
+
+    @action(
+        detail=False,
+        methods=['patch', 'put'],
+        url_path='me/profile',
+        permission_classes=[IsAuthenticated],
+    )
+    def update_profile(self, request):
+        return self._update_current_user_profile(request)
+
+class ClientViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
+    queryset = Client.objects.filter(is_deleted=False)
     serializer_class = ClientSerializer
-
-
-class CategorieMaterielViewSet(viewsets.ModelViewSet):
-    queryset = CategorieMateriel.objects.all()
-    serializer_class = CategorieMaterielSerializer
-    permission_classes = [IsAuthenticated, IsChefStockOrAdmin]
-
-class MaterielViewSet(viewsets.ModelViewSet):
-    queryset = Materiel.objects.all()
-    serializer_class = MaterielSerializer
-
-class DemandeMaintenanceViewSet(viewsets.ModelViewSet):
-    queryset = DemandeMaintenance.objects.all()
-    serializer_class = DemandeMaintenanceSerializer
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'receptioniste', 'manager'}
+    search_fields = ['nom_complet', 'email', 'telephone', 'adresse']
+    ordering_fields = ['nom_complet', 'date_creation']
 
     def perform_create(self, serializer):
-        # Enforce server-side ownership: ignore frontend receptioniste value.
-        serializer.save(receptioniste=self.request.user)
+        serializer.save(is_deleted=False)
+
+    def perform_update(self, serializer):
+        serializer.save(is_deleted=False)
+
+    def perform_destroy(self, instance):
+        instance.is_deleted = True
+        instance.save(update_fields=['is_deleted'])
+
+
+class CategorieMaterielViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
+    queryset = CategorieMateriel.objects.all()
+    serializer_class = CategorieMaterielSerializer
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'chefstock'}
+    search_fields = ['nom', 'description']
+    ordering_fields = ['nom', 'date_creation']
+
+class MaterielViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
+    queryset = Materiel.objects.filter(is_deleted=False)
+    serializer_class = MaterielSerializer
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'receptioniste', 'manager'}
+    search_fields = ['numero_serie', 'marque', 'modele', 'type', 'client__nom_complet']
+    ordering_fields = ['date_reception', 'marque', 'modele']
+
+    def perform_create(self, serializer):
+        serializer.save(is_deleted=False)
+
+    def perform_update(self, serializer):
+        serializer.save(is_deleted=False)
+
+    def perform_destroy(self, instance):
+        instance.is_deleted = True
+        instance.save(update_fields=['is_deleted'])
+
+
+# Allowed status transitions for the maintenance workflow.
+DEMANDE_TRANSITIONS = {
+    'en_attente': {'en_cours', 'refuse'},
+    'en_cours': {'termine', 'refuse'},
+    'termine': set(),
+    'refuse': {'en_attente'},
+}
+
+INTERVENTION_TRANSITIONS = {
+    'en_attente': {'en_cours', 'refuse'},
+    'en_cours': {'termine', 'refuse'},
+    'termine': set(),
+    'refuse': {'en_attente', 'en_cours'},
+}
+
+
+def validate_status_transition(old_status, new_status, transitions, label):
+    if new_status == old_status:
+        return
+    allowed = transitions.get(old_status, set())
+    if new_status not in allowed:
+        raise ValidationError({
+            'statut': f"Transition invalide pour {label}: '{old_status}' -> '{new_status}'. "
+                      f"Transitions autorisées: {', '.join(sorted(allowed)) or 'aucune'}."
+        })
+
+
+class DemandeMaintenanceViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
+    queryset = DemandeMaintenance.objects.all()
+    serializer_class = DemandeMaintenanceSerializer
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'receptioniste', 'manager'}
+    search_fields = [
+        'materiel__numero_serie', 'materiel__marque', 'materiel__modele',
+        'materiel__client__nom_complet', 'receptioniste__username', 'manager__username',
+    ]
+    ordering_fields = ['date_creation', 'statut', 'priorite']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if getattr(self.request.user, 'role', None) == 'manager':
+            qs = qs.filter(manager=self.request.user)
+        return qs
+
+    def perform_create(self, serializer):
+        # Enforce server-side ownership and initial workflow status.
+        serializer.save(receptioniste=self.request.user, statut='en_attente')
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        new_status = serializer.validated_data.get('statut', instance.statut)
+        validate_status_transition(instance.statut, new_status, DEMANDE_TRANSITIONS, 'la demande')
+        serializer.save()
 
     @action(detail=False, methods=['get'], url_path='me')
     def my_demandes(self, request):
-        queryset = self.get_queryset().filter(receptioniste=request.user)
+        queryset = self.filter_queryset(
+            DemandeMaintenance.objects.filter(receptioniste=request.user)
+        )
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            return self.get_paginated_response(self.get_serializer(page, many=True).data)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-class InterventionViewSet(viewsets.ModelViewSet):
+    @action(detail=True, methods=['post'], url_path='envoyer-facture-client')
+    @transaction.atomic
+    def envoyer_facture_client(self, request, pk=None):
+        """Create/update client invoice and email PDF with repair details."""
+        user_role = getattr(request.user, 'role', None)
+        if user_role not in ('receptioniste', 'admin', 'administrateur', 'manager'):
+            return Response(
+                {'detail': 'Seul le réceptionniste ou un manager peut envoyer la facture au client.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        demande = self.get_object()
+
+        if demande.statut != 'termine':
+            return Response(
+                {'detail': 'La facture ne peut être envoyée que lorsque la demande est terminée.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            intervention = demande.intervention
+        except Intervention.DoesNotExist:
+            return Response(
+                {'detail': 'Aucune intervention liée à cette demande.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            fiche = intervention.fiche_reparation
+        except FicheReparation.DoesNotExist:
+            return Response(
+                {'detail': 'Aucune fiche de réparation liée à cette intervention.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        materiel = demande.materiel
+        client = materiel.client
+
+        if not client.email:
+            return Response(
+                {'detail': 'Le client ne possède pas une adresse email configurée.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        facture = upsert_client_facture(intervention, client, fiche)
+
+        try:
+            send_client_repair_invoice_email(facture, fiche, client, materiel, intervention)
+        except Exception as exc:
+            return Response(
+                {
+                    'detail': f'Facture créée mais l\'email n\'a pas pu être envoyé : {exc}',
+                    'facture': FactureSerializer(facture).data,
+                    'montant_total': str(compute_repair_total(fiche)),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            {
+                'detail': 'Facture enregistrée et envoyée au client par email.',
+                'facture': FactureSerializer(facture).data,
+                'montant_total': str(facture.montant_total),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+class InterventionViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     queryset = Intervention.objects.all()
     serializer_class = InterventionSerializer
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'manager', 'technicien'}
+    search_fields = [
+        'diagnostic', 'solution_proposee', 'technicien__username',
+        'demande__materiel__numero_serie', 'demande__materiel__client__nom_complet',
+    ]
+    ordering_fields = ['date_debut', 'date_fin', 'statut']
+
+    @transaction.atomic
+    def perform_create(self, serializer):
+        intervention = serializer.save()
+        # Creating an intervention moves the linked request to "en cours".
+        demande = intervention.demande
+        if demande and demande.statut == 'en_attente':
+            demande.statut = 'en_cours'
+            demande.save(update_fields=['statut'])
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        new_status = serializer.validated_data.get('statut', instance.statut)
+        validate_status_transition(instance.statut, new_status, INTERVENTION_TRANSITIONS, "l'intervention")
+        intervention = serializer.save()
+
+        # Keep the maintenance request in sync with the intervention outcome.
+        demande = intervention.demande
+        if demande and new_status in ('termine', 'refuse') and demande.statut != new_status:
+            demande.statut = new_status
+            demande.save(update_fields=['statut'])
 
     @action(detail=False, methods=['get'], url_path='me')
     def my_interventions(self, request):
-        queryset = self.get_queryset().filter(technicien=request.user)
+        queryset = self.filter_queryset(
+            Intervention.objects.filter(technicien=request.user)
+        )
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            return self.get_paginated_response(self.get_serializer(page, many=True).data)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-class FicheReparationViewSet(viewsets.ModelViewSet):
+class FicheReparationViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     queryset = FicheReparation.objects.all()
     serializer_class = FicheReparationSerializer
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'technicien', 'manager'}
+    search_fields = ['description_panne', 'solution', 'intervention__demande__materiel__numero_serie']
+    ordering_fields = ['id']
 
-class PieceViewSet(viewsets.ModelViewSet):
+class PieceViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     queryset = Piece.objects.all()
     serializer_class = PieceSerializer
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'chefstock'}
+    search_fields = ['nom', 'reference', 'modele', 'categorie__nom']
+    ordering_fields = ['nom', 'quantite_stock', 'prix_unitaire', 'date_creation']
 
-class DemandePieceViewSet(viewsets.ModelViewSet):
+class DemandePieceViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     queryset = DemandePiece.objects.all()
     serializer_class = DemandePieceSerializer
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'technicien', 'manager', 'chefstock', 'fournisseur'}
+    search_fields = ['piece__nom', 'piece__reference', 'fiche__intervention__demande__materiel__numero_serie']
+    ordering_fields = ['date_demande', 'statut']
 
     def perform_create(self, serializer):
         piece = serializer.validated_data['piece']
@@ -523,7 +761,48 @@ class DemandePieceViewSet(viewsets.ModelViewSet):
 
         serializer.save(**data)
 
+    @action(detail=True, methods=['post'], url_path='livrer-stock')
+    def livrer_stock(self, request, pk=None):
+        """Deliver a request from existing stock: decrement atomically."""
+        user_role = getattr(request.user, 'role', None)
+        if user_role not in ('chefstock', 'admin'):
+            return Response(
+                {'detail': 'Seul le chef de stock ou un administrateur peut livrer depuis le stock.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        with transaction.atomic():
+            demande = (
+                DemandePiece.objects.select_for_update()
+                .select_related('piece')
+                .get(pk=pk)
+            )
+
+            if demande.statut not in ('demandee',):
+                return Response(
+                    {'detail': f"Impossible de livrer une demande au statut '{demande.statut}'."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            piece = Piece.objects.select_for_update().get(pk=demande.piece_id)
+            if piece.quantite_stock < demande.quantite:
+                return Response(
+                    {'detail': f'Stock insuffisant ({piece.quantite_stock} disponible, '
+                               f'{demande.quantite} demandé). Commandez la pièce.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            piece.quantite_stock -= demande.quantite
+            piece.save()
+
+            demande.statut = 'livree'
+            demande.quantite_manquante = 0
+            demande.save(update_fields=['statut', 'quantite_manquante'])
+
+        return Response(self.get_serializer(demande).data, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['post'], url_path='assigner-fournisseur')
+    @transaction.atomic
     def assigner_fournisseur(self, request, pk=None):
         demande = self.get_object()
         fournisseur_id = request.data.get('fournisseur_id')
@@ -576,11 +855,12 @@ class DemandePieceViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='reponse-fournisseur')
+    @transaction.atomic
     def reponse_fournisseur(self, request, pk=None):
         demande = self.get_object()
         
         user_role = getattr(request.user, 'role', None)
-        if user_role not in ['fournisseur', 'chefstock', 'administrateur']:
+        if user_role not in ['fournisseur', 'chefstock', 'admin']:
             return Response({'detail': 'Only suppliers or authorized staff can respond to piece demands.'}, status=status.HTTP_403_FORBIDDEN)
         
         if user_role == 'fournisseur' and demande.fournisseur and demande.fournisseur.utilisateur != request.user:
@@ -638,6 +918,7 @@ class DemandePieceViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(demande).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='reception-livraison')
+    @transaction.atomic
     def reception_livraison(self, request, pk=None):
         demande = self.get_object()
 
@@ -669,39 +950,85 @@ class DemandePieceViewSet(viewsets.ModelViewSet):
 
         if demande.commande and demande.fournisseur:
             prix = demande.prix_propose_fournisseur or demande.piece.prix_unitaire
-            montant = Decimal(str(prix)) * Decimal(str(quantite_livree))
-            numero_facture = request.data.get('numero_facture') or f"FF-{timezone.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
-            FactureFournisseur.objects.update_or_create(
-                commande=demande.commande,
-                defaults={
-                    'numero_facture': numero_facture,
-                    'fournisseur': demande.fournisseur,
-                    'montant_total': montant,
-                    'statut': 'validee' if demande.statut == 'livree' else 'brouillon',
-                }
-            )
+            montant_livraison = Decimal(str(prix)) * Decimal(str(quantite_livree))
+            facture_existante = FactureFournisseur.objects.filter(commande=demande.commande).first()
+            if facture_existante:
+                # Partial deliveries accumulate on the same invoice.
+                facture_existante.montant_total += montant_livraison
+                facture_existante.statut = 'validee' if demande.statut == 'livree' else 'brouillon'
+                facture_existante.save(update_fields=['montant_total', 'statut'])
+            else:
+                numero_facture = request.data.get('numero_facture') or f"FF-{timezone.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
+                FactureFournisseur.objects.create(
+                    commande=demande.commande,
+                    numero_facture=numero_facture,
+                    fournisseur=demande.fournisseur,
+                    montant_total=montant_livraison,
+                    statut='validee' if demande.statut == 'livree' else 'brouillon',
+                )
 
         return Response(self.get_serializer(demande).data, status=status.HTTP_200_OK)
 
-class FactureViewSet(viewsets.ModelViewSet):
-    queryset = Facture.objects.all()
+class FactureViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
+    queryset = Facture.objects.filter(is_deleted=False)
     serializer_class = FactureSerializer
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'receptioniste', 'manager'}
+    search_fields = ['client__nom_complet', 'client__email', 'intervention__demande__materiel__numero_serie']
+    ordering_fields = ['date_facture', 'montant_total', 'est_payee']
 
-class PaiementViewSet(viewsets.ModelViewSet):
+    def perform_create(self, serializer):
+        serializer.save(is_deleted=False)
+
+    def perform_update(self, serializer):
+        serializer.save(is_deleted=False)
+
+    def perform_destroy(self, instance):
+        instance.is_deleted = True
+        instance.save(update_fields=['is_deleted'])
+
+
+def _sync_facture_paiement(facture):
+    """Recompute est_payee from the sum of recorded payments."""
+    total_paye = facture.paiements.aggregate(total=Sum('montant'))['total'] or Decimal('0')
+    est_payee = total_paye >= facture.montant_total
+    if facture.est_payee != est_payee:
+        facture.est_payee = est_payee
+        facture.save(update_fields=['est_payee'])
+
+
+class PaiementViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     queryset = Paiement.objects.all()
     serializer_class = PaiementSerializer
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'receptioniste', 'manager'}
+    search_fields = ['facture__client__nom_complet', 'mode_paiement']
+    ordering_fields = ['date_paiement', 'montant']
+
+    @transaction.atomic
+    def perform_create(self, serializer):
+        paiement = serializer.save()
+        _sync_facture_paiement(paiement.facture)
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        paiement = serializer.save()
+        _sync_facture_paiement(paiement.facture)
+
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        facture = instance.facture
+        instance.delete()
+        _sync_facture_paiement(facture)
 
 
-class MessagePagination(PageNumberPagination):
-    page_size = 20
-    page_size_query_param = 'page_size'
-    max_page_size = 100
-
-
-class MessageViewSet(viewsets.ModelViewSet):
+class MessageViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     queryset = Message.objects.all()
     serializer_class = MessageSerializer
-    pagination_class = MessagePagination
+    pagination_class = StandardPagination
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+    search_fields = ['objet', 'contenu', 'expediteur__username', 'destinataire__username']
+    ordering_fields = ['date_envoi']
 
     def get_queryset(self):
         user = self.request.user
@@ -709,6 +1036,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             Q(expediteur=user) | Q(destinataire=user)
         ).order_by('-date_envoi')
 
+    @transaction.atomic
     def perform_create(self, serializer):
         destinataire = serializer.validated_data.get('destinataire')
 
@@ -722,46 +1050,79 @@ class MessageViewSet(viewsets.ModelViewSet):
             raise ValidationError({'destinataire': 'Invalid destinataire.'})
 
         message = serializer.save(expediteur=self.request.user)
+        broadcast_message_created(message, self.request)
 
-        payload = {
-            'type': 'message.created',
-            'id': message.id,
-            'expediteur': message.expediteur_id,
-            'destinataire': message.destinataire_id,
-            'objet': message.objet,
-            'contenu': message.contenu,
-            'date_envoi': message.date_envoi.isoformat(),
-        }
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        instance.refresh_from_db()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
-        channel_layer = get_channel_layer()
-        if channel_layer:
-            event = {'type': 'message.created', 'payload': payload}
-            async_to_sync(channel_layer.group_send)(f'user_{message.destinataire_id}', event)
-            async_to_sync(channel_layer.group_send)(f'user_{message.expediteur_id}', event)
+    def perform_destroy(self, instance):
+        user = self.request.user
+        if instance.expediteur_id != user.id:
+            raise PermissionDenied('Only the sender can delete this message.')
 
-class DepartmentViewSet(viewsets.ModelViewSet):
+        if instance.is_deleted:
+            return
+
+        if instance.fichier:
+            instance.fichier.delete(save=False)
+
+        instance.fichier = None
+        instance.contenu = ''
+        instance.type_message = Message.TYPE_TEXT
+        instance.is_deleted = True
+        instance.save(update_fields=['fichier', 'contenu', 'type_message', 'is_deleted'])
+        broadcast_message_deleted(instance, self.request)
+
+class DepartmentViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = set()  # only admin can manage departments
+    search_fields = ['nom_dept', 'description']
+    ordering_fields = ['nom_dept', 'date_creation']
+
+    def list(self, request, *args, **kwargs):
+        from .department_policy import MAX_SOCIETY_DEPARTMENTS
+
+        response = super().list(request, *args, **kwargs)
+        payload = response.data
+        if isinstance(payload, dict):
+            payload['max_departments'] = MAX_SOCIETY_DEPARTMENTS
+            payload['can_create'] = Department.objects.count() < MAX_SOCIETY_DEPARTMENTS
+        return response
 
 
 # ===== MODULE D'ACHAT DE PIECES =====
 
-class FournisseurViewSet(viewsets.ModelViewSet):
+class FournisseurViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     """ViewSet pour gérer les fournisseurs"""
     queryset = Fournisseur.objects.all()
     serializer_class = FournisseurSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'chefstock'}
     search_fields = ['nom', 'email', 'telephone']
     ordering_fields = ['nom', 'date_creation']
 
 
-class CommandePieceViewSet(viewsets.ModelViewSet):
+class CommandePieceViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     """ViewSet pour gérer les commandes de pièces"""
     queryset = CommandePiece.objects.filter(is_deleted=False)
     serializer_class = CommandePieceSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'chefstock', 'fournisseur'}
     search_fields = ['numero_commande', 'fournisseur__nom']
     ordering_fields = ['date_commande', 'statut', 'montant_total']
+
+    def perform_destroy(self, instance):
+        instance.is_deleted = True
+        instance.save(update_fields=['is_deleted'])
+
+    def perform_create(self, serializer):
+        serializer.save(statut='brouillon')
 
     @action(detail=True, methods=['post'])
     def calculer_montant(self, request, pk=None):
@@ -771,34 +1132,30 @@ class CommandePieceViewSet(viewsets.ModelViewSet):
         return Response({'montant_total': montant}, status=status.HTTP_200_OK)
 
 
-class LigneCommandePieceViewSet(viewsets.ModelViewSet):
+class LigneCommandePieceViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     """ViewSet pour gérer les lignes de commande"""
     queryset = LigneCommandePiece.objects.all()
     serializer_class = LigneCommandePieceSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'chefstock'}
     search_fields = ['commande__numero_commande', 'piece__nom']
 
 
-class PrixFournisseurViewSet(viewsets.ModelViewSet):
+class PrixFournisseurViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     """ViewSet pour gérer les prix fournisseurs"""
     queryset = PrixFournisseur.objects.filter(est_actif=True)
     serializer_class = PrixFournisseurSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'chefstock', 'fournisseur'}
     search_fields = ['piece__nom', 'fournisseur__nom']
     ordering_fields = ['prix', 'delai_livraison_jours']
 
 
-class FactureFournisseurViewSet(viewsets.ModelViewSet):
+class FactureFournisseurViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     """ViewSet pour les factures fournisseurs"""
     queryset = FactureFournisseur.objects.all()
     serializer_class = FactureFournisseurSerializer
-    permission_classes = [IsAuthenticated]
-    search_fields = ['numero_facture', 'fournisseur__nom', 'commande__numero_commande']
-    ordering_fields = ['date_facture', 'montant_total', 'statut']
-class FactureFournisseurViewSet(viewsets.ModelViewSet):
-    """ViewSet pour les factures fournisseurs"""
-    queryset = FactureFournisseur.objects.all()
-    serializer_class = FactureFournisseurSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+    write_roles = {'chefstock'}
     search_fields = ['numero_facture', 'fournisseur__nom', 'commande__numero_commande']
     ordering_fields = ['date_facture', 'montant_total', 'statut']

@@ -27,7 +27,10 @@ SECRET_KEY = 'django-insecure-_pz--g905gba-4^2l)q-z@zfw0hlms0(*-@4^m53c409*3p*##
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+if DEBUG:
+    ALLOWED_HOSTS = ['*']
+else:
+    ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 
 # Application definition
@@ -55,6 +58,12 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'users.pagination.StandardPagination',
+    'PAGE_SIZE': 25,
+    'DEFAULT_FILTER_BACKENDS': [
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
     ],
 }
 
@@ -89,10 +98,13 @@ SIMPLE_JWT = {
     'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1),
 }
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOWED_ORIGINS = os.getenv(
+        'CORS_ALLOWED_ORIGINS',
+        'http://localhost:5173,http://127.0.0.1:5173',
+    ).split(',')
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -160,7 +172,7 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'gestion_mt',
-        'USER': 'postgres',
+        'USER': 'dali',
         'PASSWORD': '1010',
         'HOST': 'localhost',
         'PORT': '5432',
@@ -203,6 +215,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+PUBLIC_API_URL = os.getenv('PUBLIC_API_URL', 'http://127.0.0.1:8000')
 
 # ===== EMAIL / SMTP CONFIGURATION (Gmail) =====
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
