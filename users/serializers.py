@@ -358,7 +358,7 @@ class FactureSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'montant_pieces', 'montant_main_oeuvre', 'montant_frais_societe',
-            'montant_supplementaire', 'date_facture', 'email_client_envoye',
+            'montant_supplementaire', 'montant_total', 'date_facture', 'email_client_envoye',
             'date_email_client', 'is_deleted',
         ]
 

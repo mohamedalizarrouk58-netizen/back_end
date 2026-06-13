@@ -33,6 +33,7 @@ from .client_invoice import (
     upsert_client_facture,
     send_client_repair_invoice_email,
     compute_repair_total,
+    compute_repair_breakdown,
 )
 from .mixins import ListQueryParamFilterMixin
 from .pagination import StandardPagination
@@ -978,7 +979,34 @@ class FactureViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     ordering_fields = ['date_facture', 'montant_total', 'est_payee']
 
     def perform_create(self, serializer):
-        serializer.save(is_deleted=False)
+        intervention = serializer.validated_data.get('intervention')
+        client = serializer.validated_data.get('client')
+
+        if intervention and not client:
+            demande = getattr(intervention, 'demande', None)
+            materiel = getattr(demande, 'materiel', None) if demande else None
+            if materiel and materiel.client_id:
+                client = materiel.client
+
+        fiche = FicheReparation.objects.filter(intervention=intervention).first()
+        extra = {'is_deleted': False}
+        if client:
+            extra['client'] = client
+
+        if fiche:
+            breakdown = compute_repair_breakdown(fiche)
+            extra.update(breakdown)
+        elif not serializer.validated_data.get('montant_total'):
+            raise ValidationError({
+                'intervention': 'Aucune fiche de réparation trouvée pour calculer le montant.',
+            })
+
+        if not extra.get('client'):
+            raise ValidationError({
+                'client': 'Client requis ou introuvable pour cette intervention.',
+            })
+
+        serializer.save(**extra)
 
     def perform_update(self, serializer):
         serializer.save(is_deleted=False)
