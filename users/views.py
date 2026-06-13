@@ -615,11 +615,11 @@ class DemandeMaintenanceViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet
     @action(detail=True, methods=['post'], url_path='envoyer-facture-client')
     @transaction.atomic
     def envoyer_facture_client(self, request, pk=None):
-        """Create/update client invoice and email PDF with repair details."""
+        """Email client invoice PDF after manager has generated the facture."""
         user_role = getattr(request.user, 'role', None)
-        if user_role not in ('receptioniste', 'admin', 'administrateur', 'manager'):
+        if user_role not in ('receptioniste', 'admin', 'administrateur'):
             return Response(
-                {'detail': 'Seul le réceptionniste ou un manager peut envoyer la facture au client.'},
+                {'detail': 'Seul le réceptionniste peut envoyer la facture au client.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -647,6 +647,21 @@ class DemandeMaintenanceViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if not fiche.valide_manager:
+            return Response(
+                {'detail': 'Le manager doit valider la fiche et générer la facture avant l\'envoi.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        existing_facture = Facture.objects.filter(
+            intervention=intervention, is_deleted=False,
+        ).first()
+        if not existing_facture:
+            return Response(
+                {'detail': 'Aucune facture générée. Le manager doit générer la facture depuis la fiche de réparation.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         materiel = demande.materiel
         client = materiel.client
 
@@ -663,16 +678,16 @@ class DemandeMaintenanceViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet
         except Exception as exc:
             return Response(
                 {
-                    'detail': f'Facture créée mais l\'email n\'a pas pu être envoyé : {exc}',
+                    'detail': f'La facture existe mais l\'email n\'a pas pu être envoyé : {exc}',
                     'facture': FactureSerializer(facture).data,
-                    'montant_total': str(compute_repair_total(fiche)),
+                    'montant_total': str(facture.montant_total),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         return Response(
             {
-                'detail': 'Facture enregistrée et envoyée au client par email.',
+                'detail': 'Facture envoyée au client par email.',
                 'facture': FactureSerializer(facture).data,
                 'montant_total': str(facture.montant_total),
             },
@@ -730,6 +745,59 @@ class FicheReparationViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     write_roles = {'technicien', 'manager'}
     search_fields = ['description_panne', 'solution', 'intervention__demande__materiel__numero_serie']
     ordering_fields = ['id']
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        was_validated = instance.valide_manager
+        fiche = serializer.save()
+
+        if fiche.valide_manager and not was_validated:
+            intervention = fiche.intervention
+            demande = getattr(intervention, 'demande', None)
+            materiel = getattr(demande, 'materiel', None) if demande else None
+            client = getattr(materiel, 'client', None) if materiel else None
+            if client:
+                upsert_client_facture(intervention, client, fiche)
+
+    @action(detail=True, methods=['post'], url_path='generer-facture')
+    @transaction.atomic
+    def generer_facture(self, request, pk=None):
+        """Manager generates client invoice from validated repair sheet breakdown."""
+        user_role = getattr(request.user, 'role', None)
+        if user_role not in ('manager', 'admin', 'administrateur'):
+            return Response(
+                {'detail': 'Seul le manager peut générer la facture.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        fiche = self.get_object()
+        if not fiche.valide_manager:
+            return Response(
+                {'detail': 'Validez la fiche de réparation avant de générer la facture.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        intervention = fiche.intervention
+        demande = getattr(intervention, 'demande', None)
+        materiel = getattr(demande, 'materiel', None) if demande else None
+        client = getattr(materiel, 'client', None) if materiel else None
+
+        if not client:
+            return Response(
+                {'detail': 'Client introuvable pour cette intervention.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        facture = upsert_client_facture(intervention, client, fiche)
+        return Response(
+            {
+                'detail': 'Facture générée avec le détail pièces, frais et montants.',
+                'facture': FactureSerializer(facture).data,
+                'montant_total': str(facture.montant_total),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 class PieceViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     queryset = Piece.objects.all()
@@ -1011,7 +1079,72 @@ class FactureViewSet(ListQueryParamFilterMixin, viewsets.ModelViewSet):
     def perform_update(self, serializer):
         serializer.save(is_deleted=False)
 
+    @action(detail=True, methods=['post'], url_path='envoyer-email-client')
+    @transaction.atomic
+    def envoyer_email_client(self, request, pk=None):
+        """Receptionist emails the manager-generated invoice PDF to the client."""
+        user_role = getattr(request.user, 'role', None)
+        if user_role not in ('receptioniste', 'admin', 'administrateur'):
+            return Response(
+                {'detail': 'Seul le réceptionniste peut envoyer la facture au client.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        facture = self.get_object()
+        intervention = facture.intervention
+
+        try:
+            fiche = intervention.fiche_reparation
+        except FicheReparation.DoesNotExist:
+            return Response(
+                {'detail': 'Aucune fiche de réparation liée à cette facture.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        demande = getattr(intervention, 'demande', None)
+        if not demande or demande.statut != 'termine':
+            return Response(
+                {'detail': 'La demande doit être terminée avant l\'envoi de la facture.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not fiche.valide_manager:
+            return Response(
+                {'detail': 'La fiche doit être validée par le manager avant l\'envoi.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        materiel = demande.materiel
+        client = facture.client
+
+        if not client.email:
+            return Response(
+                {'detail': 'Le client ne possède pas une adresse email configurée.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        facture = upsert_client_facture(intervention, client, fiche)
+
+        try:
+            send_client_repair_invoice_email(facture, fiche, client, materiel, intervention)
+        except Exception as exc:
+            return Response(
+                {'detail': f'Échec de l\'envoi email : {exc}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            {
+                'detail': 'Facture envoyée au client par email.',
+                'facture': FactureSerializer(facture).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
     def perform_destroy(self, instance):
+        user_role = getattr(self.request.user, 'role', None)
+        if user_role == 'receptioniste' and not instance.est_payee:
+            raise ValidationError('Seule une facture payée peut être supprimée.')
         instance.is_deleted = True
         instance.save(update_fields=['is_deleted'])
 
